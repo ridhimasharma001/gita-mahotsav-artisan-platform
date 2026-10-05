@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Mahotsav Crafts"
+description = "A mobile-first artisan directory and profile showcase for cultural fairs, with searchable craftspeople, shareable profiles, contact actions, and printable QR stall cards."
+version = "1.0.0"
+id = "artifacts/mahotsav-crafts"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21855
+
+[services.development]
+run = "pnpm --filter @workspace/mahotsav-crafts run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/mahotsav-crafts", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/mahotsav-crafts/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21855"
+BASE_PATH = "/"

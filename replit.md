@@ -1,44 +1,42 @@
-# [Project name]
+# Mahotsav Crafts
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A mobile-first directory for artisans at cultural fairs, with shareable maker profiles, contact actions, and printable stall QR cards.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/mahotsav-crafts run dev` — run the app preview
+- `pnpm --filter @workspace/mahotsav-crafts run typecheck` — typecheck the app
+- `pnpm --filter @workspace/mahotsav-crafts run build` — build the app (`PORT` and `BASE_PATH` are required by Vite config)
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- React, TypeScript, Vite, and Wouter hash-based routing
+- QR rendering with `qrcode.react`; generated QR codes stay in the browser
+- Local demo data and generated craft imagery; no artisan database is connected yet
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/mahotsav-crafts/src/artisan_data.ts` — demo artisan records
+- `artifacts/mahotsav-crafts/public/` — local cover, portrait, and product images
+- `artifacts/mahotsav-crafts/src/App.tsx` — directory, profile, and QR studio routes
+- `artifacts/mahotsav-crafts/src/index.css` — theme, responsive layout, and 4 × 6 print styling
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The artisan directory is intentionally backed by in-memory demo records; admin QR details are not saved to a database.
+- Hash routing keeps artisan URLs scannable and reloadable as `/#/artisan/<id>`.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Visitors can search and filter artisans, browse stories and product galleries, contact makers, save contacts, and share profile links. Organizers can create a QR stall card and print it at 4 × 6 inches.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+Use the warm terracotta, muted gold, off-white, and slate palette specified for this app.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- The build script loads Vite configuration that requires both `PORT` and `BASE_PATH`; set them when running the build directly from a shell.
 
 ## Pointers
 
