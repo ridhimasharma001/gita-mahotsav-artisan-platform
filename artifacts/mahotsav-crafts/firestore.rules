@@ -1,0 +1,51 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsListing(artisanId) {
+      return signedIn()
+        && request.auth.uid == artisanId
+        && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    function validListing() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+          'ownerUid', 'name', 'craft', 'category', 'origin', 'stallNumber',
+          'phone', 'story', 'coverImage', 'profileImage', 'products',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerUid', 'name', 'craft', 'category', 'origin', 'stallNumber',
+          'phone', 'story', 'coverImage', 'profileImage', 'products',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerUid is string
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 120
+        && data.craft is string && data.craft.size() > 0 && data.craft.size() <= 120
+        && data.category is string && data.category.size() > 0 && data.category.size() <= 80
+        && data.origin is string && data.origin.size() > 0 && data.origin.size() <= 160
+        && data.stallNumber is string && data.stallNumber.size() <= 40
+        && data.phone is string && data.phone.size() > 0 && data.phone.size() <= 40
+        && data.story is string && data.story.size() <= 3000
+        && data.coverImage is string && data.coverImage.size() <= 2048
+        && data.profileImage is string && data.profileImage.size() <= 2048
+        && data.products is list && data.products.size() <= 12
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    match /artisanListings/{artisanId} {
+      allow read: if true;
+      allow create: if ownsListing(artisanId) && validListing();
+      allow update: if ownsListing(artisanId)
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && validListing();
+    }
+  }
+}

@@ -86,6 +86,9 @@ button { cursor: pointer; }
 .nav-links a { color:#59616a;text-decoration:none;font-size:14px;font-weight:600;transition:color .2s; }
 .nav-links a:hover,.nav-links a.active { color:#c05a46; }
 .nav-organizer { padding:11px 17px;border:1px solid #dbcdbb;border-radius:999px; }
+.nav-artisan { display:inline-flex;align-items:center;gap:6px; }
+.live-listing-warning { margin:0 0 18px;padding:11px 14px;border:1px solid #e6d8ba;border-radius:9px;background:#fbf5e8;color:#806643;font-size:12px;line-height:1.5; }
+.account-loading { min-height:100dvh;display:grid;place-items:center;background:#f8f5ed;color:#806d58;font-size:14px; }
 .home-main { max-width:1260px;margin:auto;padding:0 28px 80px; }
 .hero { min-height:430px; display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:42px;padding:60px 0 48px; position:relative; }
 .hero-copy { position:relative;z-index:1;max-width:550px; }
@@ -228,6 +231,7 @@ button { cursor: pointer; }
 }
 @media (max-width:380px) {
  .nav-links {gap:9px}.nav-links a{font-size:11px}
+  .nav-artisan span {display:none}.nav-artisan {padding:9px 10px}
  .hero h1{font-size:47px}.artisan-card{grid-template-columns:37% 63%}.card-title-row h3{font-size:15px}
 }
 @media print {

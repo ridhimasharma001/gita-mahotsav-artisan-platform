@@ -1,15 +1,22 @@
-import { useMemo, useState } from 'react';
-import { Link, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, Redirect, Route, Switch, Router as WouterRouter, useLocation } from 'wouter';
 import { useHashLocation } from 'wouter/use-hash-location';
 import {
   ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronLeft, ChevronRight,
-  Copy, MapPin, MessageCircle, Phone, Search, Share2, X, Printer,
+  Copy, MapPin, MessageCircle, Phone, Printer, Search, Share2, UserRound, X,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { artisans, categories, getArtisan, type Artisan } from './artisan_data';
+import { ArtisanAuthPage, type ArtisanAuthValues, type ArtisanAuthMode } from './pages/ArtisanAuthPage';
+import { MyShopPage, type ArtisanListingInput } from './pages/MyShopPage';
+import { ArtisanAuthProvider, useArtisanAuth } from './lib/artisan-auth-context';
+import { ArtisanListingsProvider, useArtisanListings } from './lib/artisan-listings-context';
+import { firebaseConfigured } from './lib/firebase';
+import { saveArtisanListing } from './lib/firestore-listings';
 
 function Header() {
   const [location] = useLocation();
+  const { user } = useArtisanAuth();
   return <header className="topbar">
     <Link href="/" className="brand" data-testid="link-home">
       <span className="brand-mark">M</span>
@@ -18,6 +25,14 @@ function Header() {
     <nav className="nav-links" aria-label="Main navigation">
       <Link href="/" className={location === '/' ? 'active' : ''} data-testid="link-discover">Discover</Link>
       <Link href="/admin" className={`nav-organizer ${location === '/admin' ? 'active' : ''}`} data-testid="link-organizer">For organizers</Link>
+      <Link
+        href={user ? '/my-shop' : '/sign-in'}
+        className={`nav-organizer nav-artisan ${location === '/my-shop' || location.startsWith('/sign-') ? 'active' : ''}`}
+        aria-label={user ? 'Open my shop' : 'Sign in or sign up as an artisan'}
+        data-testid="link-artisan-account"
+      >
+        <UserRound size={15} aria-hidden="true" /><span>{user ? 'My shop' : 'For artisans'}</span>
+      </Link>
     </nav>
   </header>;
 }
@@ -29,11 +44,21 @@ function Footer() {
 function Home() {
   const [category, setCategory] = useState('All crafts');
   const [query, setQuery] = useState('');
-  const filtered = useMemo(() => artisans.filter((artisan) => {
+  const { listings, error: listingsError } = useArtisanListings();
+  const allArtisans = useMemo(() => {
+    const byId = new Map(artisans.map((artisan) => [artisan.id, artisan]));
+    listings.forEach((artisan) => byId.set(artisan.id, artisan));
+    return [...byId.values()];
+  }, [listings]);
+  const filterCategories = useMemo(
+    () => [...new Set([...categories, ...listings.map((artisan) => artisan.category)])],
+    [listings],
+  );
+  const filtered = useMemo(() => allArtisans.filter((artisan) => {
     const matchesCategory = category === 'All crafts' || artisan.category === category;
     const searchText = `${artisan.name} ${artisan.craft} ${artisan.category} ${artisan.origin} ${artisan.stallNumber}`.toLowerCase();
     return matchesCategory && searchText.includes(query.toLowerCase().trim());
-  }), [category, query]);
+  }), [allArtisans, category, query]);
   return <div className="app-shell">
     <Header />
     <main className="home-main">
@@ -55,8 +80,9 @@ function Home() {
           <label className="search-box"><Search size={18} aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a maker, craft or place" aria-label="Search makers" data-testid="input-search" /></label>
         </div>
         <div className="filter-row" role="group" aria-label="Filter by craft">
-          {categories.map((item) => <button key={item} className={`filter-pill ${category === item ? 'selected' : ''}`} onClick={() => setCategory(item)} aria-pressed={category === item} data-testid={`filter-${item.toLowerCase().replaceAll(' ', '-')}`}>{item}</button>)}
+          {filterCategories.map((item) => <button key={item} className={`filter-pill ${category === item ? 'selected' : ''}`} onClick={() => setCategory(item)} aria-pressed={category === item} data-testid={`filter-${item.toLowerCase().replaceAll(' ', '-')}`}>{item}</button>)}
         </div>
+        {listingsError && <p className="live-listing-warning" role="status">Live maker pages are temporarily unavailable. Showing the sample directory.</p>}
         <div className="artisan-grid" data-testid="artisan-directory">
           {filtered.map((artisan) => <ArtisanCard key={artisan.id} artisan={artisan} />)}
           {filtered.length === 0 && <div className="empty-state"><strong>No makers found just yet.</strong>Try another name or choose a different craft.</div>}
@@ -68,8 +94,8 @@ function Home() {
 }
 
 function ArtisanCard({ artisan }: { artisan: Artisan }) {
-  return <Link href={`/artisan/${artisan.id}`} className="artisan-card" data-testid={`card-artisan-${artisan.id}`}>
-    <div className="card-image"><img src={artisan.coverImage} alt={`${artisan.craft} by ${artisan.name}`} /><span className="craft-tag">{artisan.craft}</span></div>
+  return <Link href={`/artisan/${encodeURIComponent(artisan.id)}`} className="artisan-card" data-testid={`card-artisan-${artisan.id}`}>
+    <div className="card-image"><img src={artisan.coverImage || '/phulkari.jpg'} alt={`${artisan.craft} by ${artisan.name}`} /><span className="craft-tag">{artisan.craft}</span></div>
     <div className="card-body">
       <div className="card-title-row"><h3 data-testid={`text-artisan-name-${artisan.id}`}>{artisan.name}</h3><span className="stall-mini">STALL {artisan.stallNumber}</span></div>
       <div className="artisan-meta"><MapPin size={14} />{artisan.origin}</div>
@@ -92,10 +118,14 @@ function Toast({ message }: { message: string }) {
 }
 
 function Profile({ params }: { params: { id?: string } }) {
-  const artisan = params.id ? getArtisan(params.id) : undefined;
+  const { listings, loading: listingsLoading } = useArtisanListings();
+  const artisan = params.id
+    ? getArtisan(params.id) ?? listings.find((listing) => listing.id === params.id)
+    : undefined;
   const [expanded, setExpanded] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const { message, show } = useToastMessage();
+  if (!artisan && listingsLoading) return <div className="app-shell"><Header /><main className="profile-main"><div className="empty-state" role="status">Loading this maker’s page…</div></main></div>;
   if (!artisan) return <div className="app-shell"><Header /><main className="profile-main"><Link className="back-link" href="/"><ArrowLeft size={16} /> Back to makers</Link><div className="empty-state"><strong>We couldn’t find this maker.</strong>The fair is always adding new stories. Head back to the directory to explore.</div></main></div>;
   const profileUrl = `${window.location.origin}/#/artisan/${artisan.id}`;
   const waUrl = `https://wa.me/${artisan.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hi! I saw your stall at Gita Mahotsav and want to inquire about your products: ${profileUrl}`)}`;
@@ -123,8 +153,8 @@ function Profile({ params }: { params: { id?: string } }) {
       <Link className="back-link" href="/" data-testid="link-back-directory"><ArrowLeft size={16} /> All makers</Link>
       <section className="profile-banner">
         <div className="profile-photo">
-          <img className="profile-cover" src={artisan.coverImage} alt={`${artisan.craft} cover`} data-testid={`img-profile-cover-${artisan.id}`} />
-          <div className="profile-avatar-wrap"><img className="profile-avatar" src={artisan.profileImage} alt={`Portrait of ${artisan.name}`} data-testid={`img-profile-photo-${artisan.id}`} /></div>
+          <img className="profile-cover" src={artisan.coverImage || '/phulkari.jpg'} alt={`${artisan.craft} cover`} data-testid={`img-profile-cover-${artisan.id}`} />
+          <div className="profile-avatar-wrap"><img className="profile-avatar" src={artisan.profileImage || '/harjit-portrait.jpg'} alt={`Portrait of ${artisan.name}`} data-testid={`img-profile-photo-${artisan.id}`} /></div>
         </div>
         <div className="profile-info">
           <div className="eyebrow">{artisan.category} · stall {artisan.stallNumber}</div>
@@ -148,7 +178,9 @@ function Profile({ params }: { params: { id?: string } }) {
       </section>
       <section>
         <div className="gallery-heading"><h2 className="gallery-title">Made with care</h2><span>{artisan.products.length} pieces from the workshop</span></div>
-        <div className="gallery-grid">{artisan.products.map((product, index) => <button key={product.name} className="gallery-tile" onClick={() => setViewerIndex(index)} aria-label={`View ${product.name}`} data-testid={`button-product-${index}`}><img src={product.image} alt={product.name} /><span className="sr-only">{product.name}</span></button>)}</div>
+        {artisan.products.length > 0
+          ? <div className="gallery-grid">{artisan.products.map((product, index) => <button key={`${product.name}-${index}`} className="gallery-tile" onClick={() => setViewerIndex(index)} aria-label={`View ${product.name}`} data-testid={`button-product-${index}`}><img src={product.image || '/phulkari.jpg'} alt={product.name} /><span className="sr-only">{product.name}</span></button>)}</div>
+          : <div className="empty-state">This maker is adding pieces from the workshop.</div>}
       </section>
     </main>
     <Footer />
@@ -156,7 +188,7 @@ function Profile({ params }: { params: { id?: string } }) {
     {viewerIndex !== null && <div className="viewer" role="dialog" aria-modal="true" aria-label="Product image viewer" onClick={(event) => { if (event.target === event.currentTarget) setViewerIndex(null); }} data-testid="modal-image-viewer">
       <button className="viewer-close" onClick={() => setViewerIndex(null)} aria-label="Close image viewer" data-testid="button-close-viewer"><X size={21} /></button>
       <button className="viewer-prev" onClick={() => moveViewer(-1)} aria-label="Previous image" data-testid="button-viewer-previous"><ChevronLeft /></button>
-      <img src={artisan.products[viewerIndex].image} alt={artisan.products[viewerIndex].name} />
+      <img src={artisan.products[viewerIndex].image || '/phulkari.jpg'} alt={artisan.products[viewerIndex].name} />
       <button className="viewer-next" onClick={() => moveViewer(1)} aria-label="Next image" data-testid="button-viewer-next"><ChevronRight /></button>
       <div className="sr-only">{artisan.products[viewerIndex].name}</div>
     </div>}
@@ -217,6 +249,120 @@ function Field({ label, value, onChange, placeholder, testId, type = 'text' }: {
   return <div className="field"><label htmlFor={testId}>{label}</label><input id={testId} type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required data-testid={testId} /></div>;
 }
 
+function authErrorMessage(error: unknown) {
+  const code = typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+  if (code.includes('email-already-in-use')) return 'That email already has an account. Sign in instead.';
+  if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) return 'The email or password is incorrect.';
+  if (code.includes('weak-password')) return 'Choose a stronger password with at least six characters.';
+  if (code.includes('invalid-email')) return 'Enter a valid email address.';
+  if (code.includes('too-many-requests')) return 'There have been too many attempts. Please try again later.';
+  if (code.includes('network-request-failed')) return 'Check your internet connection and try again.';
+  return error instanceof Error ? error.message : 'We could not complete that request. Please try again.';
+}
+
+function ArtisanAuthRoute({ mode }: { mode: ArtisanAuthMode }) {
+  const { user, loading, configured, signIn, signUp, sendPasswordReset } = useArtisanAuth();
+  const [, setLocation] = useLocation();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!loading && user) setLocation('/my-shop');
+  }, [loading, setLocation, user]);
+
+  const submit = async (values: ArtisanAuthValues) => {
+    setSubmitting(true);
+    setError('');
+    try {
+      if (!configured) throw new Error('Firebase is not configured yet.');
+      if (mode === 'sign-up') {
+        await signUp(values.email, values.password, values.name ?? '');
+      } else {
+        await signIn(values.email, values.password);
+      }
+      setLocation('/my-shop');
+    } catch (caught) {
+      setError(authErrorMessage(caught));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetPassword = async (email: string) => {
+    setError('');
+    try {
+      await sendPasswordReset(email);
+    } catch (caught) {
+      setError(authErrorMessage(caught));
+      throw caught;
+    }
+  };
+
+  return <ArtisanAuthPage
+    mode={mode}
+    onSubmit={submit}
+    isLoading={loading || submitting}
+    error={error}
+    configuration={{
+      available: configured,
+      message: 'Add the Firebase web app settings in Replit Secrets, then enable Email/Password sign-in in Firebase Authentication.',
+    }}
+    onPasswordReset={mode === 'sign-in' ? resetPassword : undefined}
+  />;
+}
+
+function SignInRoute() {
+  return <ArtisanAuthRoute mode="sign-in" />;
+}
+
+function SignUpRoute() {
+  return <ArtisanAuthRoute mode="sign-up" />;
+}
+
+function MyShopRoute() {
+  const { user, loading: authLoading, configured, signOut } = useArtisanAuth();
+  const { listings, loading: listingsLoading, error: listingsError } = useArtisanListings();
+  const [, setLocation] = useLocation();
+  const [saving, setSaving] = useState(false);
+  const currentListing = user ? listings.find((listing) => listing.id === user.uid) ?? null : null;
+
+  if (!configured) return <Redirect to="/sign-in" />;
+  if (authLoading) return <div className="account-loading" role="status">Checking your maker account…</div>;
+  if (!user) return <Redirect to="/sign-in" />;
+
+  const submit = async (listing: ArtisanListingInput) => {
+    setSaving(true);
+    try {
+      await saveArtisanListing(user.uid, listing);
+    } catch (caught) {
+      if (caught instanceof Error && caught.message.includes('Firebase is not configured')) throw caught;
+      const code = typeof caught === 'object' && caught !== null && 'code' in caught
+        ? String((caught as { code?: unknown }).code)
+        : '';
+      if (code.includes('permission-denied')) {
+        throw new Error('Firestore rejected this save. Deploy the included Firestore rules and try again.');
+      }
+      throw new Error(authErrorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return <MyShopPage
+    currentListing={currentListing}
+    isLoading={listingsLoading}
+    isSaving={saving}
+    error={listingsError ? 'Your listing could not be loaded. Check the Firestore rules and try again.' : null}
+    onSubmit={submit}
+    onSignOut={async () => {
+      await signOut();
+      setLocation('/sign-in');
+    }}
+  />;
+}
+
 function NotFound() {
   return <div className="app-shell"><Header /><main className="profile-main"><div className="empty-state"><strong>This page has wandered off.</strong><Link href="/" className="back-link">Return to the fair <ArrowRight size={15} /></Link></div></main></div>;
 }
@@ -226,12 +372,19 @@ function Router() {
     <Route path="/" component={Home} />
     <Route path="/artisan/:id" component={Profile} />
     <Route path="/admin" component={Admin} />
+    <Route path="/sign-in" component={SignInRoute} />
+    <Route path="/sign-up" component={SignUpRoute} />
+    <Route path="/my-shop" component={MyShopRoute} />
     <Route component={NotFound} />
   </Switch>;
 }
 
 function App() {
-  return <WouterRouter hook={useHashLocation}><Router /></WouterRouter>;
+  return <ArtisanAuthProvider>
+    <ArtisanListingsProvider>
+      <WouterRouter hook={useHashLocation}><Router /></WouterRouter>
+    </ArtisanListingsProvider>
+  </ArtisanAuthProvider>;
 }
 
 export default App;
